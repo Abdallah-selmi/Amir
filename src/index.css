@@ -1,0 +1,130 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+:root {
+  --pink:    #FF6BD6;
+  --purple:  #9B5DE5;
+  --yellow:  #FFE347;
+  --mint:    #00F5A0;
+  --sky:     #00CFFF;
+  --orange:  #FF8C42;
+  --red:     #FF4D6D;
+  --cream:   #FFF8E7;
+  --dark:    #1a0035;
+}
+
+html {
+  height: 100%;
+  height: 100dvh;
+  min-height: -webkit-fill-available;
+  overflow: hidden;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+body {
+  width: 100%;
+  height: 100%;
+  height: 100dvh;
+  min-height: -webkit-fill-available;
+  overflow: hidden;
+  overflow-x: hidden;
+  overscroll-behavior: none;
+  -webkit-overflow-scrolling: touch;
+  touch-action: manipulation;
+  background: #1a0035;
+  font-family: 'Bubblegum Sans', cursive;
+}
+
+#root {
+  width: 100%;
+  height: 100%;
+  height: 100dvh;
+  min-height: -webkit-fill-available;
+  overflow: hidden;
+  position: relative;
+}
+
+* {
+  -webkit-tap-highlight-color: transparent;
+}
+
+img, canvas, svg, video {
+  max-width: 100%;
+  display: block;
+}
+
+button {
+  font: inherit;
+}
+
+@keyframes skyHue {
+  0%, 100% { filter: hue-rotate(0deg) saturate(1.08); }
+  50% { filter: hue-rotate(18deg) saturate(1.25); }
+}
+
+@keyframes buttonGlow {
+  0%, 100% { filter: drop-shadow(0 8px 20px rgba(255, 107, 214, 0.45)); }
+  50% { filter: drop-shadow(0 0 34px rgba(255, 227, 71, 0.75)); }
+}
+
+@keyframes flicker {
+  0%, 100% { transform: scaleY(1) rotate(-2deg); opacity: 1; }
+  25%       { transform: scaleY(1.15) rotate(2deg); opacity: 0.85; }
+  75%       { transform: scaleY(0.9) rotate(-1deg); opacity: 1; }
+}
+
+@keyframes cloudDrift {
+  0%   { transform: translateX(0px); }
+  50%  { transform: translateX(35px); }
+  100% { transform: translateX(0px); }
+}
+
+@keyframes twinkle {
+  0%, 100% { opacity: 0.15; transform: scale(0.7); }
+  50%       { opacity: 1; transform: scale(1.3); }
+}
+
+@keyframes rainbowPulse {
+  0%, 100% { filter: hue-rotate(0deg) saturate(1.2); transform: scale(1); }
+  50%       { filter: hue-rotate(15deg) saturate(1.4); transform: scale(1.02); }
+}
+
+@keyframes grassSway {
+  0%, 100% { transform: skewX(-2deg); }
+  50%       { transform: skewX(2deg); }
+}
+
+@keyframes gentleFloat {
+  0%, 100% { transform: translateY(0); }
+  50%       { transform: translateY(-12px); }
+}
+
+@keyframes hueText {
+  0% { filter: hue-rotate(0deg); }
+  100% { filter: hue-rotate(360deg); }
+}
+
+.font-display {
+  font-family: 'Bubblegum Sans', cursive;
+}
+
+.font-body {
+  font-family: 'Nunito', sans-serif;
+}
+
+/* Hide scrollbar for horizontal scroll on mobile */
+.hide-scrollbar {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.hide-scrollbar::-webkit-scrollbar {
+  display: none;
+}
