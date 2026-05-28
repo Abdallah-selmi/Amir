@@ -10,41 +10,23 @@ type Page = 'landing' | 'transition' | 'celebration';
 
 export default function App() {
   const [page, setPage] = useState<Page>('landing');
-  const [showAudioPrompt, setShowAudioPrompt] = useState(!audioManager.getIsUnlocked());
+  const [showAudioFallback, setShowAudioFallback] = useState(false);
 
   useEffect(() => {
-    const events = ['pointerdown', 'touchstart', 'click', 'keydown'] as const;
-    const addOptions: AddEventListenerOptions = { capture: true, passive: true };
-    const removeOptions: EventListenerOptions = { capture: true };
+    // Regle iOS : unlock() appele directement depuis l'event handler, sans delai.
+    const unlock = () => audioManager.unlock();
 
-    const removeGestureListeners = () => {
-      events.forEach(eventName => window.removeEventListener(eventName, unlock, removeOptions));
-    };
-
-    const syncAudioPrompt = () => {
-      const needsGesture = !audioManager.getIsUnlocked();
-      setShowAudioPrompt(needsGesture);
-      if (!needsGesture) removeGestureListeners();
-    };
-
-    const onBlocked = () => setShowAudioPrompt(true);
-
-    function unlock() {
-      if (!audioManager.getIsUnlocked()) {
-        void audioManager.unlock();
-      }
-    }
-
-    events.forEach(eventName =>
-      window.addEventListener(eventName, unlock, addOptions)
+    const events = ['touchstart', 'touchend', 'click', 'keydown'] as const;
+    events.forEach(e =>
+      window.addEventListener(e, unlock, { once: true, passive: true })
     );
-    window.addEventListener('audio-state-change', syncAudioPrompt);
+
+    // Ecouter l'echec audio pour afficher le bouton fallback.
+    const onBlocked = () => setShowAudioFallback(true);
     window.addEventListener('audio-blocked', onBlocked);
-    syncAudioPrompt();
 
     return () => {
-      removeGestureListeners();
-      window.removeEventListener('audio-state-change', syncAudioPrompt);
+      events.forEach(e => window.removeEventListener(e, unlock));
       window.removeEventListener('audio-blocked', onBlocked);
       audioManager.destroy();
     };
@@ -60,11 +42,6 @@ export default function App() {
 
   const handleReset = useCallback(() => {
     setPage('landing');
-  }, []);
-
-  const startAudio = useCallback(async () => {
-    await audioManager.unlock();
-    setShowAudioPrompt(!audioManager.getIsUnlocked());
   }, []);
 
   return (
@@ -115,39 +92,36 @@ export default function App() {
       {/* Music toggle */}
       <MusicToggle />
 
-      {/* Audio start button */}
+      {/* Audio fallback button */}
       <AnimatePresence>
-        {showAudioPrompt && (
+        {showAudioFallback && (
           <button
-            key="start-audio"
+            key="fallback-audio"
             style={{
               position: 'fixed',
-              bottom: 'calc(24px + env(safe-area-inset-bottom))',
+              bottom: 'calc(28px + env(safe-area-inset-bottom))',
               left: '50%',
               transform: 'translateX(-50%)',
               background: 'linear-gradient(135deg, #FF6BD6, #9B5DE5)',
-              color: '#ffffff',
-              border: 'none',
-              padding: '14px 28px',
+              color: '#fff',
+              border: '3px solid rgba(255,255,255,0.4)',
+              padding: '14px 32px',
               borderRadius: '100px',
               fontFamily: 'Bubblegum Sans, cursive',
-              fontSize: 'clamp(14px, 4vw, 20px)',
-              fontWeight: 'bold',
+              fontSize: 'clamp(15px, 4.5vw, 22px)',
               cursor: 'pointer',
               zIndex: 9999,
-              minHeight: '48px',
-              minWidth: '48px',
-              boxShadow: '0 8px 30px rgba(155,93,229,0.6)',
+              minHeight: '52px',
+              boxShadow: '0 8px 32px rgba(155,93,229,0.6)',
               WebkitTapHighlightColor: 'transparent',
-            }}
-            onPointerDown={() => {
-              void startAudio();
+              touchAction: 'manipulation',
             }}
             onClick={() => {
-              void startAudio();
+              audioManager.unlock();
+              setShowAudioFallback(false);
             }}
           >
-            Activer la musique
+            🎵 Touche pour la musique !
           </button>
         )}
       </AnimatePresence>

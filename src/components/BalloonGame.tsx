@@ -93,7 +93,6 @@ export default function BalloonGame({ onComplete }: Props) {
 
   useEffect(() => {
     if (!showWin) return;
-    playWin();
     const x = window.innerWidth / 2;
     const y = window.innerHeight / 2;
     const pieces = createConfettiBurst(x, y, 100, Math.min(window.innerWidth, 520) * 0.45);
@@ -121,7 +120,11 @@ export default function BalloonGame({ onComplete }: Props) {
     setTimeout(() => {
       setConfetti(prev => prev.filter(piece => !pieces.some(p => p.id === piece.id)));
     }, 900);
-    playPop();
+    if (score + 1 >= BALLOON_GAME_TARGET) {
+      playWin();
+    } else {
+      playPop();
+    }
   };
 
   return (

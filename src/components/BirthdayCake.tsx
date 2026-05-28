@@ -58,8 +58,8 @@ export default function BirthdayCake() {
     setCandles(nextCandles);
 
     if (nextCandles.every(candle => !candle)) {
+      playWin();
       setTimeout(() => {
-        playWin();
         setShowWin(true);
       }, 300);
     }

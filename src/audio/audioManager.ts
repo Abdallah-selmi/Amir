@@ -1,22 +1,22 @@
-type BirthdayNote = {
-  freq: number | null;
-  beats: number;
-};
+type AudioState = 'idle' | 'playing' | 'paused' | 'blocked'
+
+type AudioWindow = Window & {
+  webkitAudioContext: typeof AudioContext
+}
 
 class AudioManager {
-  private ctx: AudioContext | null = null;
-  private masterGain: GainNode | null = null;
-  private isPlaying = false;
-  private isUnlocked = false;
-  private unlockPromise: Promise<void> | null = null;
-  private scheduleTimer: ReturnType<typeof setTimeout> | null = null;
-  private fadeTimer: ReturnType<typeof setTimeout> | null = null;
-  private nextNoteTime = 0;
-  private melodyIndex = 0;
+  private ctx: AudioContext | null = null
+  private masterGain: GainNode | null = null
+  private state: AudioState = 'idle'
+  private unlockPromise: Promise<void> | null = null
+  private scheduleTimer: ReturnType<typeof setTimeout> | null = null
+  private nextNoteTime = 0
+  private melodyIndex = 0
 
-  private readonly beatDuration = 0.34;
+  private readonly beatDuration = 0.34
 
-  private readonly melody: BirthdayNote[] = [
+  // Melodie "Happy Birthday" en Sol majeur.
+  private readonly melody = [
     { freq: 392.00, beats: 0.5 },
     { freq: 392.00, beats: 0.5 },
     { freq: 440.00, beats: 1 },
@@ -44,273 +44,256 @@ class AudioManager {
     { freq: 659.25, beats: 1 },
     { freq: 523.25, beats: 1 },
     { freq: 587.33, beats: 1 },
-    { freq: 523.25, beats: 2 },
-    { freq: null, beats: 1 },
-  ];
+    { freq: 523.25, beats: 2.5 },
+    { freq: null, beats: 1 }
+  ]
 
   private emitStateChange(): void {
-    window.dispatchEvent(new CustomEvent('audio-state-change'));
+    window.dispatchEvent(new CustomEvent('audio-state-change'))
   }
 
-  private getCtx(): AudioContext {
+  // Regle iOS #1 : createContext() seulement ici.
+  // Appelle uniquement depuis unlock() ou playEffect(), eux-memes appeles
+  // depuis un event handler direct (click/touchstart).
+  private initContext(): AudioContext {
     if (!this.ctx) {
-      const audioWindow = window as unknown as Window & {
-        webkitAudioContext: typeof AudioContext;
-      };
-      const AudioContextCtor = window.AudioContext || audioWindow.webkitAudioContext;
-      this.ctx = new AudioContextCtor();
+      const Ctx = window.AudioContext ||
+        (window as unknown as AudioWindow).webkitAudioContext
+      this.ctx = new Ctx()
     }
-    return this.ctx;
-  }
-
-  private primeMobileAudio(ctx: AudioContext): void {
-    const source = ctx.createBufferSource();
-    source.buffer = ctx.createBuffer(1, 1, ctx.sampleRate);
-    const gain = ctx.createGain();
-    gain.gain.value = 0.0001;
-    source.connect(gain);
-    gain.connect(ctx.destination);
-    source.start(ctx.currentTime);
-  }
-
-  private buildAudioGraph(ctx: AudioContext): void {
-    if (this.masterGain) return;
-
-    this.masterGain = ctx.createGain();
-    this.masterGain.gain.setValueAtTime(0, ctx.currentTime);
-
-    const reverb = this.createReverb(ctx);
-    const dryGain = ctx.createGain();
-    const wetGain = ctx.createGain();
-    dryGain.gain.value = 0.78;
-    wetGain.gain.value = 0.22;
-
-    this.masterGain.connect(dryGain);
-    this.masterGain.connect(reverb);
-    reverb.connect(wetGain);
-    dryGain.connect(ctx.destination);
-    wetGain.connect(ctx.destination);
+    return this.ctx
   }
 
   private createReverb(ctx: AudioContext): ConvolverNode {
-    const convolver = ctx.createConvolver();
-    const sampleRate = ctx.sampleRate;
-    const length = sampleRate * 1.25;
-    const buffer = ctx.createBuffer(2, length, sampleRate);
-
+    const conv = ctx.createConvolver()
+    const sr = ctx.sampleRate
+    const len = Math.floor(sr * 1.2)
+    const buf = ctx.createBuffer(2, len, sr)
     for (let ch = 0; ch < 2; ch++) {
-      const data = buffer.getChannelData(ch);
-      for (let i = 0; i < length; i++) {
-        data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / length, 2.7);
+      const d = buf.getChannelData(ch)
+      for (let i = 0; i < len; i++) {
+        d[i] = (Math.random() * 2 - 1) *
+          Math.pow(1 - i / len, 3)
       }
     }
-
-    convolver.buffer = buffer;
-    return convolver;
+    conv.buffer = buf
+    return conv
   }
 
-  private playBirthdayNote(freq: number, startTime: number, duration: number): void {
-    const ctx = this.getCtx();
-    if (!this.masterGain) return;
+  private playNote(
+    freq: number,
+    when: number,
+    dur: number,
+    vol = 0.15
+  ): void {
+    if (!this.ctx || !this.masterGain) return
 
-    const bell = ctx.createOscillator();
-    const bellGain = ctx.createGain();
-    bell.type = 'triangle';
-    bell.frequency.setValueAtTime(freq, startTime);
-    bellGain.gain.setValueAtTime(0, startTime);
-    bellGain.gain.linearRampToValueAtTime(0.13, startTime + 0.025);
-    bellGain.gain.exponentialRampToValueAtTime(0.001, startTime + duration);
-    bell.connect(bellGain);
-    bellGain.connect(this.masterGain);
-    bell.start(startTime);
-    bell.stop(startTime + duration + 0.04);
+    const osc = this.ctx.createOscillator()
+    const env = this.ctx.createGain()
 
-    const sparkle = ctx.createOscillator();
-    const sparkleGain = ctx.createGain();
-    sparkle.type = 'sine';
-    sparkle.frequency.setValueAtTime(freq * 2, startTime);
-    sparkleGain.gain.setValueAtTime(0, startTime);
-    sparkleGain.gain.linearRampToValueAtTime(0.035, startTime + 0.02);
-    sparkleGain.gain.exponentialRampToValueAtTime(0.001, startTime + duration * 0.65);
-    sparkle.connect(sparkleGain);
-    sparkleGain.connect(this.masterGain);
-    sparkle.start(startTime);
-    sparkle.stop(startTime + duration * 0.7);
+    osc.type = 'sine'
+    osc.frequency.setValueAtTime(freq, when)
+    env.gain.setValueAtTime(0, when)
+    env.gain.linearRampToValueAtTime(vol, when + 0.03)
+    env.gain.exponentialRampToValueAtTime(0.0001, when + dur)
+
+    osc.connect(env)
+    env.connect(this.masterGain)
+    osc.start(when)
+    osc.stop(when + dur + 0.05)
+
+    // Harmonique douce (octave superieure)
+    const osc2 = this.ctx.createOscillator()
+    const env2 = this.ctx.createGain()
+    osc2.type = 'sine'
+    osc2.frequency.setValueAtTime(freq * 2, when)
+    env2.gain.setValueAtTime(0, when)
+    env2.gain.linearRampToValueAtTime(vol * 0.25, when + 0.03)
+    env2.gain.exponentialRampToValueAtTime(0.0001, when + dur * 0.6)
+    osc2.connect(env2)
+    env2.connect(this.masterGain)
+    osc2.start(when)
+    osc2.stop(when + dur)
   }
 
-  private playBassNote(startTime: number, duration: number): void {
-    const ctx = this.getCtx();
-    if (!this.masterGain) return;
+  private scheduleMusic(): void {
+    if (this.state !== 'playing' || !this.ctx) return
 
-    const bass = ctx.createOscillator();
-    const gain = ctx.createGain();
-    bass.type = 'sine';
-    bass.frequency.setValueAtTime(130.81, startTime);
-    gain.gain.setValueAtTime(0, startTime);
-    gain.gain.linearRampToValueAtTime(0.045, startTime + 0.04);
-    gain.gain.exponentialRampToValueAtTime(0.001, startTime + duration);
-    bass.connect(gain);
-    gain.connect(this.masterGain);
-    bass.start(startTime);
-    bass.stop(startTime + duration + 0.05);
-  }
+    const now = this.ctx.currentTime
+    const lookahead = 3.5
 
-  private stopScheduler(): void {
-    if (this.scheduleTimer) {
-      clearTimeout(this.scheduleTimer);
-      this.scheduleTimer = null;
-    }
-  }
-
-  private stopFadeTimer(): void {
-    if (this.fadeTimer) {
-      clearTimeout(this.fadeTimer);
-      this.fadeTimer = null;
-    }
-  }
-
-  private startMusic(fadeSeconds = 1.2): void {
-    const ctx = this.getCtx();
-    if (!this.masterGain) return;
-
-    this.stopScheduler();
-    this.stopFadeTimer();
-    this.isPlaying = true;
-    this.melodyIndex = 0;
-    this.nextNoteTime = ctx.currentTime + 0.08;
-
-    this.masterGain.gain.cancelScheduledValues(ctx.currentTime);
-    this.masterGain.gain.setValueAtTime(this.masterGain.gain.value, ctx.currentTime);
-    this.masterGain.gain.linearRampToValueAtTime(0.72, ctx.currentTime + fadeSeconds);
-
-    this.schedulePattern();
-    this.emitStateChange();
-  }
-
-  private schedulePattern(): void {
-    if (!this.isPlaying || !this.ctx) return;
-
-    const ctx = this.getCtx();
-    const lookahead = 3.5;
-
-    while (this.nextNoteTime < ctx.currentTime + lookahead) {
-      const note = this.melody[this.melodyIndex];
-      const duration = note.beats * this.beatDuration;
+    while (this.nextNoteTime < now + lookahead) {
+      const idx = this.melodyIndex % this.melody.length
+      const note = this.melody[idx]
+      const duration = note.beats * this.beatDuration
 
       if (note.freq) {
-        this.playBirthdayNote(note.freq, this.nextNoteTime, duration * 0.9);
+        this.playNote(note.freq, this.nextNoteTime, duration * 0.9, 0.14)
       }
 
-      if (this.melodyIndex === 0 || this.melodyIndex === 6 || this.melodyIndex === 12 || this.melodyIndex === 19) {
-        this.playBassNote(this.nextNoteTime, this.beatDuration * 2.4);
+      if (idx === 0 || idx === 6 || idx === 12 || idx === 19) {
+        this.playNote(
+          196.00,
+          this.nextNoteTime,
+          this.beatDuration * 2.4,
+          0.055
+        )
       }
 
-      this.nextNoteTime += duration;
-      this.melodyIndex = (this.melodyIndex + 1) % this.melody.length;
+      this.nextNoteTime += duration
+      this.melodyIndex++
     }
 
-    this.scheduleTimer = setTimeout(() => this.schedulePattern(), 900);
+    this.scheduleTimer = setTimeout(
+      () => this.scheduleMusic(), 1000
+    )
   }
 
+  // Point d'entree principal.
+  // Doit etre appele depuis onClick ou onTouchStart direct.
   async unlock(): Promise<void> {
-    if (this.isUnlocked && this.masterGain) {
-      if (this.ctx?.state === 'suspended') {
-        await this.ctx.resume();
-      }
-      if (!this.isPlaying) {
-        this.startMusic(0.8);
-      }
-      return;
-    }
+    if (this.state === 'playing') return
+    if (this.unlockPromise) return this.unlockPromise
 
-    if (this.unlockPromise) return this.unlockPromise;
-
-    this.unlockPromise = this.unlockAudio();
-    return this.unlockPromise;
+    this.unlockPromise = this.startUnlock()
+    return this.unlockPromise
   }
 
-  private async unlockAudio(): Promise<void> {
+  private async startUnlock(): Promise<void> {
     try {
-      const ctx = this.getCtx();
-      this.primeMobileAudio(ctx);
+      // Regle iOS #2 : initContext dans le meme call stack que l'event utilisateur.
+      const ctx = this.initContext()
 
+      // Regle iOS #3 : toujours resume() avant play.
       if (ctx.state === 'suspended') {
-        await ctx.resume();
+        await ctx.resume()
       }
 
-      if (ctx.state === 'suspended') {
-        throw new Error('AudioContext is still suspended');
+      if (ctx.state !== 'running') {
+        throw new Error(`AudioContext state: ${ctx.state}`)
       }
 
-      this.buildAudioGraph(ctx);
-      this.isUnlocked = true;
-      this.startMusic(2);
-    } catch (error) {
-      console.warn('Audio unlock failed:', error);
-      this.isUnlocked = false;
-      window.dispatchEvent(new CustomEvent('audio-blocked'));
-      this.emitStateChange();
+      if (!this.masterGain) {
+        this.masterGain = ctx.createGain()
+
+        const reverb = this.createReverb(ctx)
+        const dry = ctx.createGain()
+        const wet = ctx.createGain()
+        dry.gain.value = 0.65
+        wet.gain.value = 0.35
+
+        this.masterGain.connect(dry)
+        this.masterGain.connect(reverb)
+        reverb.connect(wet)
+        dry.connect(ctx.destination)
+        wet.connect(ctx.destination)
+      }
+
+      this.masterGain.gain.cancelScheduledValues(ctx.currentTime)
+      this.masterGain.gain.setValueAtTime(0, ctx.currentTime)
+      this.masterGain.gain.linearRampToValueAtTime(
+        0.85, ctx.currentTime + 2.0
+      )
+
+      this.state = 'playing'
+      this.nextNoteTime = ctx.currentTime + 0.1
+      this.melodyIndex = 0
+      this.scheduleMusic()
+      this.emitStateChange()
+
+      console.log('Audio demarre avec succes')
+    } catch (err) {
+      console.error('Audio bloque sur iOS:', err)
+      this.state = 'blocked'
+      this.emitStateChange()
+      window.dispatchEvent(
+        new CustomEvent('audio-blocked', { detail: String(err) })
+      )
     } finally {
-      this.unlockPromise = null;
+      this.unlockPromise = null
     }
   }
 
-  async toggle(): Promise<boolean> {
-    if (!this.ctx || !this.masterGain || !this.isUnlocked) {
-      await this.unlock();
-      return this.isPlaying;
-    }
+  async playEffect(
+    createEffect: (ctx: AudioContext, destination: AudioNode) => void
+  ): Promise<void> {
+    try {
+      const ctx = this.initContext()
 
-    if (this.ctx.state === 'suspended') {
-      await this.ctx.resume();
-    }
+      if (ctx.state === 'suspended') {
+        await ctx.resume()
+      }
 
-    if (this.isPlaying) {
-      this.stopFadeTimer();
-      this.masterGain.gain.cancelScheduledValues(this.ctx.currentTime);
-      this.masterGain.gain.setValueAtTime(this.masterGain.gain.value, this.ctx.currentTime);
-      this.masterGain.gain.linearRampToValueAtTime(0, this.ctx.currentTime + 0.45);
-      this.fadeTimer = setTimeout(() => {
-        this.stopScheduler();
-        this.isPlaying = false;
-        this.emitStateChange();
-      }, 450);
-    } else {
-      this.startMusic(0.8);
-    }
+      if (ctx.state !== 'running') {
+        throw new Error(`AudioContext state: ${ctx.state}`)
+      }
 
-    this.emitStateChange();
-    return this.isPlaying;
+      createEffect(ctx, ctx.destination)
+    } catch (err) {
+      console.error('Effet audio bloque sur iOS:', err)
+      this.state = 'blocked'
+      this.emitStateChange()
+      window.dispatchEvent(
+        new CustomEvent('audio-blocked', { detail: String(err) })
+      )
+    }
   }
 
-  getIsPlaying(): boolean {
-    return this.isPlaying;
-  }
+  toggle(): boolean {
+    if (!this.ctx || !this.masterGain) return false
 
-  getIsUnlocked(): boolean {
-    return this.isUnlocked && Boolean(this.masterGain);
-  }
-
-  destroy(): void {
-    this.stopScheduler();
-    this.stopFadeTimer();
-    this.isPlaying = false;
-    this.emitStateChange();
-
-    if (this.ctx) {
-      this.masterGain?.gain.linearRampToValueAtTime(0, this.ctx.currentTime + 0.45);
-      const ctx = this.ctx;
+    if (this.state === 'playing') {
+      this.masterGain.gain.linearRampToValueAtTime(
+        0, this.ctx.currentTime + 0.4
+      )
       setTimeout(() => {
-        void ctx.close();
-        if (this.ctx === ctx) {
-          this.ctx = null;
-          this.masterGain = null;
-          this.isUnlocked = false;
-          this.unlockPromise = null;
-        }
-      }, 550);
+        if (this.scheduleTimer) clearTimeout(this.scheduleTimer)
+        this.state = 'paused'
+        this.emitStateChange()
+      }, 450)
+      return false
+    } else {
+      this.state = 'playing'
+      this.nextNoteTime = this.ctx.currentTime + 0.05
+      this.melodyIndex = 0
+      this.masterGain.gain.linearRampToValueAtTime(
+        0.85, this.ctx.currentTime + 0.8
+      )
+      this.scheduleMusic()
+      this.emitStateChange()
+      return true
     }
+  }
+
+  getState(): AudioState {
+    return this.state
+  }
+
+  isPlaying(): boolean {
+    return this.state === 'playing'
+  }
+
+  // Regle iOS #4 : toujours close() au cleanup.
+  destroy(): void {
+    if (this.scheduleTimer) clearTimeout(this.scheduleTimer)
+    this.scheduleTimer = null
+    this.state = 'idle'
+    this.emitStateChange()
+    if (this.masterGain && this.ctx) {
+      this.masterGain.gain.linearRampToValueAtTime(
+        0, this.ctx.currentTime + 0.3
+      )
+    }
+    const ctx = this.ctx
+    setTimeout(() => {
+      void ctx?.close()
+      if (this.ctx === ctx) {
+        this.ctx = null
+        this.masterGain = null
+        this.unlockPromise = null
+      }
+    }, 400)
   }
 }
 
-export const audioManager = new AudioManager();
+export const audioManager = new AudioManager()

@@ -2,13 +2,13 @@ import { useEffect, useState, useCallback } from 'react';
 import { audioManager } from '../audio/audioManager';
 
 export function useAudio() {
-  const [isPlaying, setIsPlaying] = useState(audioManager.getIsPlaying());
+  const [isPlaying, setIsPlaying] = useState(audioManager.isPlaying());
   const [showFallback, setShowFallback] = useState(false);
 
   useEffect(() => {
     const handleBlocked = () => setShowFallback(true);
     const syncState = () => {
-      const nextIsPlaying = audioManager.getIsPlaying();
+      const nextIsPlaying = audioManager.isPlaying();
       setIsPlaying(nextIsPlaying);
       if (nextIsPlaying) setShowFallback(false);
     };
@@ -22,15 +22,19 @@ export function useAudio() {
     };
   }, []);
 
-  const toggle = useCallback(async () => {
-    await audioManager.toggle();
-    setIsPlaying(audioManager.getIsPlaying());
+  const toggle = useCallback(() => {
+    if (audioManager.getState() === 'idle') {
+      audioManager.unlock();
+      setIsPlaying(true);
+      return;
+    }
+    setIsPlaying(audioManager.toggle());
   }, []);
 
-  const forcePlay = useCallback(async () => {
-    await audioManager.unlock();
-    setIsPlaying(audioManager.getIsPlaying());
-    setShowFallback(!audioManager.getIsPlaying());
+  const forcePlay = useCallback(() => {
+    audioManager.unlock();
+    setIsPlaying(true);
+    setShowFallback(false);
   }, []);
 
   return { isPlaying, showFallback, toggle, forcePlay };
