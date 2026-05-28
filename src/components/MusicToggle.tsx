@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
+import { Volume2, VolumeX } from 'lucide-react';
 import { audioManager } from '../audio/audioManager';
 
 export default function MusicToggle() {
@@ -11,9 +12,9 @@ export default function MusicToggle() {
     return () => window.removeEventListener('audio-state-change', syncState);
   }, []);
 
-  const handleToggle = () => {
-    const nextIsPlaying = audioManager.toggle();
-    setIsPlaying(nextIsPlaying);
+  const handleToggle = async () => {
+    await audioManager.toggle();
+    setIsPlaying(audioManager.getIsPlaying());
   };
 
   return (
@@ -45,9 +46,13 @@ export default function MusicToggle() {
         outline: 'none',
         willChange: 'transform',
       }}
-      aria-label={isPlaying ? 'Mute music' : 'Play music'}
+      aria-label={isPlaying ? 'Couper la musique' : 'Jouer la musique'}
     >
-      {isPlaying ? '🎵' : '🔇'}
+      {isPlaying ? (
+        <Volume2 size={24} color="#ffffff" strokeWidth={2.5} />
+      ) : (
+        <VolumeX size={24} color="#ffffff" strokeWidth={2.5} />
+      )}
     </motion.button>
   );
 }

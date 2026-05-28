@@ -10,30 +10,44 @@ type Page = 'landing' | 'transition' | 'celebration';
 
 export default function App() {
   const [page, setPage] = useState<Page>('landing');
-  const [showAudioFallback, setShowAudioFallback] = useState(false);
+  const [showAudioPrompt, setShowAudioPrompt] = useState(!audioManager.getIsUnlocked());
 
   useEffect(() => {
-    const events = ['click', 'touchstart', 'touchend', 'keydown'] as const;
+    const events = ['pointerdown', 'touchstart', 'click', 'keydown'] as const;
+    const addOptions: AddEventListenerOptions = { capture: true, passive: true };
+    const removeOptions: EventListenerOptions = { capture: true };
 
-    const unlock = () => {
-      audioManager.unlock();
-      events.forEach(e => window.removeEventListener(e, unlock));
+    const removeGestureListeners = () => {
+      events.forEach(eventName => window.removeEventListener(eventName, unlock, removeOptions));
     };
 
-    events.forEach(e =>
-      window.addEventListener(e, unlock, { once: true, passive: true })
+    const syncAudioPrompt = () => {
+      const needsGesture = !audioManager.getIsUnlocked();
+      setShowAudioPrompt(needsGesture);
+      if (!needsGesture) removeGestureListeners();
+    };
+
+    const onBlocked = () => setShowAudioPrompt(true);
+
+    function unlock() {
+      if (!audioManager.getIsUnlocked()) {
+        void audioManager.unlock();
+      }
+    }
+
+    events.forEach(eventName =>
+      window.addEventListener(eventName, unlock, addOptions)
     );
+    window.addEventListener('audio-state-change', syncAudioPrompt);
+    window.addEventListener('audio-blocked', onBlocked);
+    syncAudioPrompt();
 
     return () => {
-      events.forEach(e => window.removeEventListener(e, unlock));
+      removeGestureListeners();
+      window.removeEventListener('audio-state-change', syncAudioPrompt);
+      window.removeEventListener('audio-blocked', onBlocked);
       audioManager.destroy();
     };
-  }, []);
-
-  useEffect(() => {
-    const onBlocked = () => setShowAudioFallback(true);
-    window.addEventListener('audio-blocked', onBlocked);
-    return () => window.removeEventListener('audio-blocked', onBlocked);
   }, []);
 
   const handleActivate = useCallback(() => {
@@ -46,6 +60,11 @@ export default function App() {
 
   const handleReset = useCallback(() => {
     setPage('landing');
+  }, []);
+
+  const startAudio = useCallback(async () => {
+    await audioManager.unlock();
+    setShowAudioPrompt(!audioManager.getIsUnlocked());
   }, []);
 
   return (
@@ -96,11 +115,11 @@ export default function App() {
       {/* Music toggle */}
       <MusicToggle />
 
-      {/* Audio fallback button */}
+      {/* Audio start button */}
       <AnimatePresence>
-        {showAudioFallback && (
+        {showAudioPrompt && (
           <button
-            key="fallback-audio"
+            key="start-audio"
             style={{
               position: 'fixed',
               bottom: 'calc(24px + env(safe-area-inset-bottom))',
@@ -121,12 +140,14 @@ export default function App() {
               boxShadow: '0 8px 30px rgba(155,93,229,0.6)',
               WebkitTapHighlightColor: 'transparent',
             }}
+            onPointerDown={() => {
+              void startAudio();
+            }}
             onClick={() => {
-              audioManager.unlock();
-              setShowAudioFallback(false);
+              void startAudio();
             }}
           >
-            🎵 Touche pour la musique !
+            Activer la musique
           </button>
         )}
       </AnimatePresence>

@@ -22,8 +22,9 @@ export function useAudio() {
     };
   }, []);
 
-  const toggle = useCallback(() => {
-    setIsPlaying(audioManager.toggle());
+  const toggle = useCallback(async () => {
+    await audioManager.toggle();
+    setIsPlaying(audioManager.getIsPlaying());
   }, []);
 
   const forcePlay = useCallback(async () => {

@@ -8,7 +8,9 @@ class AudioManager {
   private masterGain: GainNode | null = null;
   private isPlaying = false;
   private isUnlocked = false;
+  private unlockPromise: Promise<void> | null = null;
   private scheduleTimer: ReturnType<typeof setTimeout> | null = null;
+  private fadeTimer: ReturnType<typeof setTimeout> | null = null;
   private nextNoteTime = 0;
   private melodyIndex = 0;
 
@@ -59,6 +61,35 @@ class AudioManager {
       this.ctx = new AudioContextCtor();
     }
     return this.ctx;
+  }
+
+  private primeMobileAudio(ctx: AudioContext): void {
+    const source = ctx.createBufferSource();
+    source.buffer = ctx.createBuffer(1, 1, ctx.sampleRate);
+    const gain = ctx.createGain();
+    gain.gain.value = 0.0001;
+    source.connect(gain);
+    gain.connect(ctx.destination);
+    source.start(ctx.currentTime);
+  }
+
+  private buildAudioGraph(ctx: AudioContext): void {
+    if (this.masterGain) return;
+
+    this.masterGain = ctx.createGain();
+    this.masterGain.gain.setValueAtTime(0, ctx.currentTime);
+
+    const reverb = this.createReverb(ctx);
+    const dryGain = ctx.createGain();
+    const wetGain = ctx.createGain();
+    dryGain.gain.value = 0.78;
+    wetGain.gain.value = 0.22;
+
+    this.masterGain.connect(dryGain);
+    this.masterGain.connect(reverb);
+    reverb.connect(wetGain);
+    dryGain.connect(ctx.destination);
+    wetGain.connect(ctx.destination);
   }
 
   private createReverb(ctx: AudioContext): ConvolverNode {
@@ -131,6 +162,31 @@ class AudioManager {
     }
   }
 
+  private stopFadeTimer(): void {
+    if (this.fadeTimer) {
+      clearTimeout(this.fadeTimer);
+      this.fadeTimer = null;
+    }
+  }
+
+  private startMusic(fadeSeconds = 1.2): void {
+    const ctx = this.getCtx();
+    if (!this.masterGain) return;
+
+    this.stopScheduler();
+    this.stopFadeTimer();
+    this.isPlaying = true;
+    this.melodyIndex = 0;
+    this.nextNoteTime = ctx.currentTime + 0.08;
+
+    this.masterGain.gain.cancelScheduledValues(ctx.currentTime);
+    this.masterGain.gain.setValueAtTime(this.masterGain.gain.value, ctx.currentTime);
+    this.masterGain.gain.linearRampToValueAtTime(0.72, ctx.currentTime + fadeSeconds);
+
+    this.schedulePattern();
+    this.emitStateChange();
+  }
+
   private schedulePattern(): void {
     if (!this.isPlaying || !this.ctx) return;
 
@@ -157,64 +213,70 @@ class AudioManager {
   }
 
   async unlock(): Promise<void> {
-    if (this.isUnlocked) return;
-    this.isUnlocked = true;
+    if (this.isUnlocked && this.masterGain) {
+      if (this.ctx?.state === 'suspended') {
+        await this.ctx.resume();
+      }
+      if (!this.isPlaying) {
+        this.startMusic(0.8);
+      }
+      return;
+    }
 
+    if (this.unlockPromise) return this.unlockPromise;
+
+    this.unlockPromise = this.unlockAudio();
+    return this.unlockPromise;
+  }
+
+  private async unlockAudio(): Promise<void> {
     try {
       const ctx = this.getCtx();
+      this.primeMobileAudio(ctx);
 
       if (ctx.state === 'suspended') {
         await ctx.resume();
       }
 
-      this.masterGain = ctx.createGain();
-      this.masterGain.gain.setValueAtTime(0, ctx.currentTime);
-      this.masterGain.gain.linearRampToValueAtTime(0.72, ctx.currentTime + 2);
+      if (ctx.state === 'suspended') {
+        throw new Error('AudioContext is still suspended');
+      }
 
-      const reverb = this.createReverb(ctx);
-      const dryGain = ctx.createGain();
-      const wetGain = ctx.createGain();
-      dryGain.gain.value = 0.78;
-      wetGain.gain.value = 0.22;
-
-      this.masterGain.connect(dryGain);
-      this.masterGain.connect(reverb);
-      reverb.connect(wetGain);
-      dryGain.connect(ctx.destination);
-      wetGain.connect(ctx.destination);
-
-      this.isPlaying = true;
-      this.melodyIndex = 0;
-      this.nextNoteTime = ctx.currentTime + 0.08;
-      this.schedulePattern();
-      this.emitStateChange();
+      this.buildAudioGraph(ctx);
+      this.isUnlocked = true;
+      this.startMusic(2);
     } catch (error) {
       console.warn('Audio unlock failed:', error);
       this.isUnlocked = false;
       window.dispatchEvent(new CustomEvent('audio-blocked'));
       this.emitStateChange();
+    } finally {
+      this.unlockPromise = null;
     }
   }
 
-  toggle(): boolean {
-    if (!this.ctx || !this.masterGain) {
-      void this.unlock();
+  async toggle(): Promise<boolean> {
+    if (!this.ctx || !this.masterGain || !this.isUnlocked) {
+      await this.unlock();
       return this.isPlaying;
     }
 
+    if (this.ctx.state === 'suspended') {
+      await this.ctx.resume();
+    }
+
     if (this.isPlaying) {
+      this.stopFadeTimer();
+      this.masterGain.gain.cancelScheduledValues(this.ctx.currentTime);
+      this.masterGain.gain.setValueAtTime(this.masterGain.gain.value, this.ctx.currentTime);
       this.masterGain.gain.linearRampToValueAtTime(0, this.ctx.currentTime + 0.45);
-      setTimeout(() => {
+      this.fadeTimer = setTimeout(() => {
         this.stopScheduler();
         this.isPlaying = false;
         this.emitStateChange();
       }, 450);
     } else {
-      this.stopScheduler();
-      this.isPlaying = true;
-      this.nextNoteTime = this.ctx.currentTime + 0.08;
-      this.masterGain.gain.linearRampToValueAtTime(0.72, this.ctx.currentTime + 0.8);
-      this.schedulePattern();
+      this.startMusic(0.8);
     }
 
     this.emitStateChange();
@@ -225,8 +287,13 @@ class AudioManager {
     return this.isPlaying;
   }
 
+  getIsUnlocked(): boolean {
+    return this.isUnlocked && Boolean(this.masterGain);
+  }
+
   destroy(): void {
     this.stopScheduler();
+    this.stopFadeTimer();
     this.isPlaying = false;
     this.emitStateChange();
 
@@ -239,6 +306,7 @@ class AudioManager {
           this.ctx = null;
           this.masterGain = null;
           this.isUnlocked = false;
+          this.unlockPromise = null;
         }
       }, 550);
     }
